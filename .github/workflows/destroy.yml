@@ -1,0 +1,63 @@
+name: S3 Bucket - Destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "DESTROY" to confirm'
+        required: true
+        default: 'no'
+      force:
+        description: 'Force delete objects before destroy'
+        required: true
+        default: 'false'
+        type: boolean
+
+concurrency:
+  group: s3-bucket-destroy
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check confirmation
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "DESTROY" ]; then
+            echo "Confirmation failed. Expected 'DESTROY', got '${{ github.event.inputs.confirm }}'"
+            exit 1
+          fi
+
+  destroy:
+    needs: guard
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform init
+        run: terraform init
+
+      - name: Force delete objects
+        if: github.event.inputs.force == 'true'
+        run: |
+          BUCKET=$(terraform output -raw bucket_name)
+          echo "Emptying bucket: $BUCKET"
+          aws s3 rm s3://$BUCKET --recursive
+
+          # Delete versions and markers
+          VERSIONS=$(aws s3api list-object-versions --bucket $BUCKET)
+          VERSIONS_TO_DELETE=$(echo $VERSIONS | jq -r '{Objects: [.Versions[]? | {Key: .Key, VersionId: .VersionId}], Quiet: true}')
+          MARKERS_TO_DELETE=$(echo $VERSIONS | jq -r '{Objects: [.DeleteMarkers[]? | {Key: .Key, VersionId: .VersionId}], Quiet: true}')
+
+          if [ "$(echo $VERSIONS_TO_DELETE | jq '.Objects | length')" -gt 0 ]; then
+            aws s3api delete-objects --bucket $BUCKET --delete "$VERSIONS_TO_DELETE"
+          fi
+
+          if [ "$(echo $MARKERS_TO_DELETE | jq '.Objects | length')" -gt 0 ]; then
+            aws s3api delete-objects --bucket $BUCKET --delete "$MARKERS_TO_DELETE"
+          fi
+
+      - name: Terraform destroy
+        run: terraform destroy -auto-approve -var="force_destroy=${{ github.event.inputs.force }}"

@@ -1,0 +1,75 @@
+name: S3 Bucket - Plan/Apply
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '.github/workflows/destroy.yml'
+      - 'README.md'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: s3-bucket-apply
+  cancel-in-progress: false
+
+jobs:
+  fmt-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform fmt
+        run: terraform fmt -check -recursive
+
+      - name: Terraform init
+        run: terraform init -backend=false
+
+      - name: Terraform validate
+        run: terraform validate
+
+  plan:
+    needs: fmt-and-validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform init
+        run: terraform init
+
+      - name: Terraform plan
+        run: terraform plan -out=tfplan -no-color
+
+      - name: Terraform show
+        run: terraform show -no-color tfplan
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: s3-tfplan
+          path: tfplan
+          retention-days: 5
+
+  apply:
+    needs: [fmt-and-validate, plan]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform init
+        run: terraform init
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: s3-tfplan
+          path: .
+
+      - name: Terraform apply
+        run: terraform apply -auto-approve tfplan

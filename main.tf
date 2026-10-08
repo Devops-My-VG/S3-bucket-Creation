@@ -10,6 +10,7 @@ resource "aws_s3_bucket" "this" {
 
 resource "aws_s3_bucket_versioning" "this" {
   bucket = aws_s3_bucket.this.id
+
   versioning_configuration {
     status = var.enable_versioning ? "Enabled" : "Suspended"
   }
@@ -37,6 +38,7 @@ resource "aws_s3_bucket_public_access_block" "this" {
 
 resource "aws_s3_bucket_ownership_controls" "this" {
   bucket = aws_s3_bucket.this.id
+
   rule {
     object_ownership = "BucketOwnerEnforced"
   }
@@ -48,6 +50,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "this" {
   rule {
     id     = "abort-incomplete-uploads"
     status = "Enabled"
+
     abort_incomplete_multipart_upload {
       days_after_initiation = 7
     }
@@ -56,7 +59,11 @@ resource "aws_s3_bucket_lifecycle_configuration" "this" {
   rule {
     id     = "expire-noncurrent-versions"
     status = "Enabled"
-    filter { prefix = "" }
+
+    filter {
+      prefix = ""
+    }
+
     noncurrent_version_expiration {
       noncurrent_days = var.noncurrent_version_days
     }
@@ -65,7 +72,11 @@ resource "aws_s3_bucket_lifecycle_configuration" "this" {
   rule {
     id     = "transition-old-versions-to-ia"
     status = "Enabled"
-    filter { prefix = "" }
+
+    filter {
+      prefix = ""
+    }
+
     noncurrent_version_transition {
       noncurrent_days = 30
       storage_class   = "STANDARD_IA"
@@ -75,6 +86,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "this" {
 
 resource "aws_s3_bucket_policy" "this" {
   bucket = aws_s3_bucket.this.id
+
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -91,6 +103,7 @@ resource "aws_s3_bucket_policy" "this" {
       }
     }]
   })
+
   depends_on = [aws_s3_bucket_public_access_block.this]
 }
 
@@ -102,6 +115,7 @@ resource "aws_s3_object" "placeholder_dirs" {
     "rds/.keep",
     "other/.keep"
   ])
+
   bucket       = aws_s3_bucket.this.id
   key          = each.value
   content      = ""
@@ -109,8 +123,8 @@ resource "aws_s3_object" "placeholder_dirs" {
 }
 
 resource "aws_ssm_parameter" "bucket_name" {
-  name  = "/infra/s3/${var.project_name}/bucket_name"
-  type  = "String"
-  value = aws_s3_bucket.this.id
-  overwrite = true 
+  name      = "/infra/s3/${var.project_name}/bucket_name"
+  type      = "String"
+  value     = aws_s3_bucket.this.id
+  overwrite = true
 }

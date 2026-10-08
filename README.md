@@ -1,74 +1,40 @@
 # S3 Bucket
 
-Standalone Terraform repository to manage a single AWS S3 bucket with best practices.
+Standalone Terraform repository to manage a single AWS S3 bucket.
 
 ## Features
+- Fixed bucket name (for stable identification)
 - Versioning enabled
 - AES256 server-side encryption
 - Public access blocked
 - Bucket owner enforced
 - Lifecycle rule to abort incomplete multi-part uploads
-- SSM Parameter Store parameter for bucket discovery
+- Public parameter in SSM Parameter Store for discovery
 
 ## Architecture
-This repository is INDEPENDENT. It does not depend on any other infrastructure project and utilizes its own Terraform state.
+This repository uses a **Fixed Bucket Name** to ensure reproducibility and stability. It maintains its own Terraform state.
 
-## Setup
-Ensure AWS credentials are configured in GitHub secrets:
-- `AWS_ACCESS_KEY_ID`
-- `AWS_SECRET_ACCESS_KEY`
-- `AWS_DEFAULT_REGION`
+**WARNING:** Changing the `bucket_name` in `terraform.tfvars` after apply will force the deletion of the existing bucket and creation of a new one, resulting in data loss as S3 bucket names are immutable.
+
+## Prerequisites
+1. **State:** An existing S3 bucket (`terraform-state-414100287492-us-east-1`) and DynamoDB table (`terraform-locks`) to store state and manage locks.
+2. **GitHub Secrets:** 
+   - `AWS_ACCESS_KEY_ID`
+   - `AWS_SECRET_ACCESS_KEY`
+   - `AWS_DEFAULT_REGION`
+3. **GitHub Variables:**
+   - Create a repository **Variable** (not Secret): `BUCKET_NAME` = `<your-fixed-bucket-name>` (must include AWS Account ID for global uniqueness).
 
 ## Usage
 
-### Create
-Push changes to the `main` branch or trigger manually via Actions.
+### Create/Apply
+Push changes to the `main` branch. The CI/CD workflow will plan and apply automatically.
 
 ### Destroy
-1. Navigate to Actions → S3 Bucket - Destroy
+1. Navigate to Actions -> S3 Bucket - Destroy
 2. Click Run workflow
-3. Set input `confirm` to `DESTROY`
-4. Set input `force` to `true` if you need to delete a non-empty bucket
+3. Input `confirm`: `DESTROY`
+4. Input `force`: `true`
 
-## Terraform Commands
-
-### Init
-```bash
-terraform init
-```
-
-### Plan
-```bash
-terraform plan
-```
-
-### Apply
-```bash
-terraform apply -auto-approve
-```
-
-### Destroy
-```bash
-terraform destroy -auto-approve
-```
-
-## Variables
-
-| Name | Description | Default |
-| :--- | :--- | :--- |
-| `aws_region` | AWS region | `"us-east-1"` |
-| `project_name` | Project name | `"terraform-infra"` |
-| `environment` | Environment name | `"dev"` |
-| `bucket_name` | S3 bucket name | `""` |
-| `enable_versioning`| Enable versioning | `true` |
-| `force_destroy` | Force destroy | `false` |
-
-## Outputs
-
-| Name | Description |
-| :--- | :--- |
-| `bucket_name` | The name of the S3 bucket |
-| `bucket_arn` | The ARN of the S3 bucket |
-| `bucket_region` | The region of the S3 bucket |
-| `bucket_domain_name` | The domain name of the S3 bucket |
-| `ssm_parameter_name` | The SSM path to the bucket name |
+---
+*Note on force_destroy = true: All objects and versioned content will be permanently deleted upon destruction.*

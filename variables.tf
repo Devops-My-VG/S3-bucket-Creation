@@ -18,8 +18,7 @@ variable "environment" {
 
 variable "bucket_name" {
   type        = string
-  description = "S3 bucket name (unique if empty)"
-  default     = ""
+  description = "S3 bucket name (fixed, globally unique)"
 }
 
 variable "enable_versioning" {
@@ -31,5 +30,5 @@ variable "enable_versioning" {
 variable "force_destroy" {
   type        = bool
   description = "Force destroy the bucket (delete objects)"
-  default     = false
+  default     = true
 }

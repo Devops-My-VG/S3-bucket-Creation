@@ -1,14 +1,10 @@
-resource "random_id" "bucket_suffix" {
-  byte_length = 4
-}
-
 resource "aws_s3_bucket" "this" {
-  bucket = var.bucket_name != "" ? var.bucket_name : "${var.project_name}-bucket-${random_id.bucket_suffix.hex}"
+  bucket = var.bucket_name
 
   force_destroy = var.force_destroy
 
   tags = {
-    Name = var.bucket_name != "" ? var.bucket_name : "${var.project_name}-bucket-${random_id.bucket_suffix.hex}"
+    Name = var.bucket_name
   }
 }
 

@@ -22,7 +22,7 @@ env:
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
   AWS_DEFAULT_REGION:    ${{ secrets.AWS_DEFAULT_REGION }}
   AWS_REGION:            ${{ secrets.AWS_DEFAULT_REGION }}
-  BUCKET_NAME:           ${{ vars.BUCKET_NAME }}
+  BUCKET_NAME:           terraform-infra-metadata-<AWS_ACCOUNT_ID>
 
 jobs:
   guard:
@@ -42,59 +42,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
-
-      - name: Debug AWS env
-        run: |
-          echo "Access Key Length: ${#AWS_ACCESS_KEY_ID}"
-          aws sts get-caller-identity
-
+      - name: Debug AWS identity
+        run: aws sts get-caller-identity
       - name: Terraform init
         run: terraform init
-
-      - name: Force delete objects
-        if: github.event.inputs.force == 'true'
-        run: |
-          BUCKET="${BUCKET_NAME}"
-          if [ -z "$BUCKET" ] || [ "$BUCKET" == "null" ]; then
-            ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
-            BUCKET="terraform-infra-bucket-$ACCOUNT"
-          fi
-
-          echo "Emptying bucket: $BUCKET"
-          # Only attempt if bucket exists
-          if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
-            aws s3 rm "s3://$BUCKET" --recursive
-
-            VERSIONS=$(aws s3api list-object-versions --bucket "$BUCKET")
-            # Using jq to extract objects to delete
-            VERSIONS_TO_DELETE=$(echo "$VERSIONS" | jq -r '{Objects: [.Versions[]? | {Key: .Key, VersionId: .VersionId}], Quiet: true} | select(.Objects | length > 0)')
-            MARKERS_TO_DELETE=$(echo "$VERSIONS" | jq -r '{Objects: [.DeleteMarkers[]? | {Key: .Key, VersionId: .VersionId}], Quiet: true} | select(.Objects | length > 0)')
-
-            if [ ! -z "$VERSIONS_TO_DELETE" ]; then
-              echo "$VERSIONS_TO_DELETE" > versions.json
-              aws s3api delete-objects --bucket "$BUCKET" --delete file://versions.json
-            fi
-
-            if [ ! -z "$MARKERS_TO_DELETE" ]; then
-              echo "$MARKERS_TO_DELETE" > markers.json
-              aws s3api delete-objects --bucket "$BUCKET" --delete file://markers.json
-            fi
-          else
-            echo "Bucket $BUCKET does not exist. Skipping."
-          fi
-
+      - name: Terraform state list
+        run: terraform state list || echo "(no state)"
       - name: Terraform destroy
-        run: terraform destroy -auto-approve -var="force_destroy=${{ github.event.inputs.force }}"
-
+        run: terraform destroy -auto-approve
       - name: Fallback cleanup
         if: always()
         run: |
-          BUCKET="${BUCKET_NAME}"
-          if [ -z "$BUCKET" ] || [ "$BUCKET" == "null" ]; then
-            ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
-            BUCKET="terraform-infra-bucket-$ACCOUNT"
-          fi
-          if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
-            echo "Bucket $BUCKET still exists, forcing removal."
-            aws s3 rb "s3://$BUCKET" --force
+          if aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
+            echo "Bucket still exists — forcing delete..."
+            aws s3 rb "s3://$BUCKET_NAME" --force || true
+          else
+            echo "Bucket is gone."
           fi

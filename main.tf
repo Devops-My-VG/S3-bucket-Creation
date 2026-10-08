@@ -1,10 +1,10 @@
 resource "aws_s3_bucket" "this" {
-  bucket = var.bucket_name
-
+  bucket        = var.bucket_name
   force_destroy = var.force_destroy
 
   tags = {
-    Name = var.bucket_name
+    Name    = var.bucket_name
+    Purpose = "shared-metadata-store"
   }
 }
 
@@ -48,15 +48,64 @@ resource "aws_s3_bucket_lifecycle_configuration" "this" {
   rule {
     id     = "abort-incomplete-uploads"
     status = "Enabled"
-
-    filter {
-      prefix = ""
-    }
-
     abort_incomplete_multipart_upload {
       days_after_initiation = 7
     }
   }
+
+  rule {
+    id     = "expire-noncurrent-versions"
+    status = "Enabled"
+    filter { prefix = "" }
+    noncurrent_version_expiration {
+      noncurrent_days = var.noncurrent_version_days
+    }
+  }
+
+  rule {
+    id     = "transition-old-versions-to-ia"
+    status = "Enabled"
+    filter { prefix = "" }
+    noncurrent_version_transition {
+      noncurrent_days = 30
+      storage_class   = "STANDARD_IA"
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "this" {
+  bucket = aws_s3_bucket.this.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "DenyInsecureTransport"
+      Effect    = "Deny"
+      Principal = "*"
+      Action    = "s3:*"
+      Resource = [
+        aws_s3_bucket.this.arn,
+        "${aws_s3_bucket.this.arn}/*"
+      ]
+      Condition = {
+        Bool = { "aws:SecureTransport" = "false" }
+      }
+    }]
+  })
+  depends_on = [aws_s3_bucket_public_access_block.this]
+}
+
+resource "aws_s3_object" "placeholder_dirs" {
+  for_each = toset([
+    "ec2/.keep",
+    "ecs/.keep",
+    "kubernetes/.keep",
+    "rds/.keep",
+    "other/.keep"
+  ])
+  bucket       = aws_s3_bucket.this.id
+  key          = each.value
+  content      = ""
+  content_type = "application/x-directory"
 }
 
 resource "aws_ssm_parameter" "bucket_name" {

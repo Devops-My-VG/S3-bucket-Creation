@@ -7,11 +7,6 @@ on:
         description: 'Type "DESTROY" to confirm'
         required: true
         default: 'no'
-      force:
-        description: 'Force delete objects before destroy'
-        required: true
-        default: true
-        type: boolean
 
 concurrency:
   group: s3-bucket-destroy
@@ -22,7 +17,7 @@ env:
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
   AWS_DEFAULT_REGION:    ${{ secrets.AWS_DEFAULT_REGION }}
   AWS_REGION:            ${{ secrets.AWS_DEFAULT_REGION }}
-  BUCKET_NAME:           terraform-infra-metadata-08102026
+  BUCKET_NAME:           terraform-infra-metadata-08102026   # ← HARDCODED
 
 jobs:
   guard:
@@ -31,9 +26,10 @@ jobs:
       - name: Check confirmation
         run: |
           if [ "${{ github.event.inputs.confirm }}" != "DESTROY" ]; then
-            echo "Confirmation failed. Expected 'DESTROY', got '${{ github.event.inputs.confirm }}'"
+            echo "❌ Confirmation failed. Expected 'DESTROY', got '${{ github.event.inputs.confirm }}'"
             exit 1
           fi
+          echo "✅ Confirmation accepted."
 
   destroy:
     needs: guard
@@ -42,20 +38,62 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
+
       - name: Debug AWS identity
         run: aws sts get-caller-identity
+
       - name: Terraform init
         run: terraform init
+
       - name: Terraform state list
-        run: terraform state list || echo "(no state)"
+        run: terraform state list || echo "(no state — fallback will handle it)"
+
       - name: Terraform destroy
         run: terraform destroy -auto-approve
-      - name: Fallback cleanup
+
+      - name: Force delete bucket (always runs)
         if: always()
         run: |
+          echo "=== Checking bucket: $BUCKET_NAME ==="
+
           if aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
-            echo "Bucket still exists — forcing delete..."
-            aws s3 rb "s3://$BUCKET_NAME" --force || true
+            echo "🔍 Bucket exists — emptying it..."
+
+            # Delete all current objects
+            aws s3 rm "s3://$BUCKET_NAME" --recursive || true
+
+            # Delete all versions
+            aws s3api list-object-versions --bucket "$BUCKET_NAME" \
+              --query '{Objects: Versions[].{Key:Key,VersionId:VersionId}}' \
+              --output json > /tmp/versions.json
+
+            if grep -q '"Key"' /tmp/versions.json; then
+              aws s3api delete-objects --bucket "$BUCKET_NAME" \
+                --delete file:///tmp/versions.json
+            fi
+
+            # Delete all delete markers
+            aws s3api list-object-versions --bucket "$BUCKET_NAME" \
+              --query '{Objects: DeleteMarkers[].{Key:Key,VersionId:VersionId}}' \
+              --output json > /tmp/markers.json
+
+            if grep -q '"Key"' /tmp/markers.json; then
+              aws s3api delete-objects --bucket "$BUCKET_NAME" \
+                --delete file:///tmp/markers.json
+            fi
+
+            # Delete the bucket
+            echo "💥 Deleting bucket..."
+            aws s3 rb "s3://$BUCKET_NAME" --force
+
+            echo "✅ Bucket $BUCKET_NAME deleted."
           else
-            echo "Bucket is gone."
+            echo "✅ Bucket $BUCKET_NAME does not exist (already gone)."
           fi
+
+      - name: Delete SSM parameter
+        if: always()
+        run: |
+          aws ssm delete-parameter \
+            --name "/infra/s3/terraform-infra/bucket_name" 2>/dev/null || \
+            echo "SSM parameter already gone or never created."

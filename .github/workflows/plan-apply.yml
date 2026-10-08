@@ -21,7 +21,7 @@ env:
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
   AWS_DEFAULT_REGION:    ${{ secrets.AWS_DEFAULT_REGION }}
   AWS_REGION:            ${{ secrets.AWS_DEFAULT_REGION }}
-  BUCKET_NAME:           ${{ vars.BUCKET_NAME }}
+  BUCKET_NAME:           terraform-infra-metadata-08102026
 
 jobs:
   fmt-and-validate:
@@ -63,7 +63,6 @@ jobs:
 
   apply:
     needs: [fmt-and-validate, plan]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: production
     steps:

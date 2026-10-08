@@ -112,5 +112,5 @@ resource "aws_ssm_parameter" "bucket_name" {
   name  = "/infra/s3/${var.project_name}/bucket_name"
   type  = "String"
   value = aws_s3_bucket.this.id
-   overwrite = true 
+  overwrite = true 
 }
